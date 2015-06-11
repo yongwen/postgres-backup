@@ -1,0 +1,302 @@
+Backing Up And Restoring A WattDepot PostgreSQL Database
+========================================================
+
+This guide provides instructions for backing up a WattDepot installation's 
+PostgreSQL database on one computer and restoring it to another computer.
+
+In this guide, the "%" character represents a terminal's command prompt.
+
+Requirements
+------------
+
+This guide assumes:
+* The wattdepot server is running on a Linux OS.
+* The wattdepot server is being run as user "wattdepot," with a home directory 
+  located at /home/wattdepot.
+
+The following users and databases must exist in order to create a backup:
+* System user: "wattdepot" (does not require root privileges)
+* PostgreSQL user "wattdepot"
+  * PostgreSQL user "wattdepot" must be the owner of the "wattdepot" database.
+* PostgreSQL database "wattdepot"
+
+Move Backup Script
+------------------
+
+Assuming you have already downloaded the WattDepot repository, copy the 
+localBackup directory into the wattdepot user's home directory:
+
+  % cp -R <path-to-repository>/localBackup /home/wattdepot/
+
+Make sure the wattdepot user owns the directory:
+  
+  % sudo chown -R wattdepot:wattdepot /home/wattdepot/localBackup
+  
+Make the two shell scripts executable:
+
+  % chmod +x /home/wattdepot/localBackup/wattdepot_backup_script.sh
+  % chmod +x /home/wattdepot/localBackup/run_wattdepot_backup.sh
+  
+
+Configure Backup Script
+-----------------------
+
+Switch to localBackup. Open wattdepot_backup_script.sh in a text editor. 
+Check the values of these lines:
+
+  # Set WATTDEPOT_VERSION to your current version
+  export WATTDEPOT_VERSION="2.2.2"
+  # Set location of pg_dump executable
+  export PG_DUMP_PATH="/usr/pgsql-9.1/bin"
+  # Set location of wattdepot user's home directory (where .wattdepot and wattdepot-$WATTDEPOT_VERSION are)
+  export WATTDEPOT_USER_HOMEDIR="/home/wattdepot"
+
+Edit the values of each environment variable to match your system: 
+* WATTDEPOT_VERSION is the version of your WattDepot installation. 
+* PG_DUMP_PATH is the location of the pg_dump executable from the PostgreSQL 
+  installation that contains the Wattdepot database.
+* WATTDEPOT_USER_HOMEDIR points to the directory containing the .wattdepot and wattdepot-<x.x.x> directories 
+  (where <x.x.x> represents the version number).
+  
+Create Backup Manually
+----------------------
+
+This section describes how to use the script to make manual backups.
+
+1. On your server, log in as, or switch to, the "wattdepot" user.
+
+2. Export the password for the PostgreSQL "wattdepot" user as the PGPASSWORD 
+   environment variable: 
+   
+      % export PGPASSWORD="YOUR-PASSWORD-HERE"
+      
+   If you do not set PGPASSWORD, you will be prompted to enter the password later, 
+   when the backup script is run.
+   
+3. Check that the /wattdepot-backups directory exists and is owned by user wattdepot: 
+
+      % ls -al / | grep wattdepot-backups
+      drwxr-xr-x.   2 wattdepot wattdepot  4096 Aug 30 14:34 wattdepot-backups
+      
+    3a. If wattdepot-backups does not exist, create it and take ownership of it: 
+    
+          % sudo mkdir /wattdepot-backups
+          % sudo chown -R wattdepot:wattdepot /wattdepot-backups 
+          
+    3b. Create the directory wattdepot-backups/monthly as well:
+    
+          % sudo mkdir /wattdepot-backups/monthly
+          % sudo chown -R wattdepot:wattdepot /wattdepot-backups/monthly
+          
+4. In the wattdepot user's home directory, run the script wattdepot_backup_script.sh.
+
+      % sh ./localBackup/wattdepot_backup_script.sh
+      
+   The wattdepot_backup_script.sh script creates a .tar.gz backup. The name of 
+   this file begins with "wattdepot_backup" and ends in a timestamp. It contains 
+   the following:
+     * A plain text dump of the wattdepot database: plaintext_backup.dump.
+     * A copy of the /home/wattdepot/.wattdepot directory.
+     * A copy of the /home/wattdepot/wattdepot-<x.x.x> directory.
+	   Replace "<x.x.x>" with your current version number.
+   
+   This script makes one backup in /wattdepot-backups. 
+   If it is the first day of a month, it will copy the backup into 
+   /wattdepot-backups/monthly/. This backup's name will begin with 
+   "wattdepot_monthly_backup" and end in a timestamp.
+   
+   If the script finds any backups that were last modified more than seven 
+   days (604800 seconds) ago, it will ask the user's permission before 
+   deleting them permanently. 
+
+   The script does not delete backups in /wattdepot-backups/monthly.
+   
+   Note:
+   ----------------------------------------------------------------------------
+   If you want to automatically delete backups older than seven days without 
+   being asked for confirmation, run the script with --delete-auto instead:
+   
+     % sh wattdepot_backup_script.sh --delete-auto
+   ----------------------------------------------------------------------------
+
+5. Confirm that the backup file exists in /wattdepot-backups.
+6. Unset the PGPASSWORD environment variable:
+
+      % unset PGPASSWORD
+
+Run Backup Automatically
+------------------------
+
+If you want to run backups automatically, you will need to configure 
+cron jobs to run the run_wattdepot_backup.sh script at specific times.
+
+run_wattdepot_backup.sh sets the PGPASSWORD environment variable and runs 
+wattdepot_backup_script with --delete-auto. This removes backups that are 
+greater than 7 days old without asking the user to confirm.
+
+1. Edit the run_wattdepot_backup.sh file. Change the PGPASSWORD value to 
+   match the password of the wattdepot PostgreSQL user:
+
+  export PGPASSWORD="PASSWORD"
+
+Note:
+-------------------------------------------------------------------------------
+Storing a database password in plain text is not secure. If this script 
+is being used on a production server, make sure access to the directory 
+where run_wattdepot_backup.sh is located is restricted to the 
+appropriate users, and that any other appropriate restrictions are enforced.
+-------------------------------------------------------------------------------
+
+2. If you are running the wattdepot server as a user other than "wattdepot,"
+   you will need to change this line in run_wattdepot_backup.sh to point 
+   to wattdepot_backup_script in that user's home directory:
+
+   sh /home/wattdepot/localBackup/wattdepot_backup_script.sh --delete-auto
+
+3. Configuring specific cron jobs is beyond the scope of this guide.
+   The cron job should refer to the absolute file path of the script.
+   In these instructions, it is /home/wattdepot/localBackup/run_wattdepot_backup.sh.
+
+1. Add new cron jobs to run as the current user by using the crontab editor:
+
+   % crontab -e
+
+Restore Backup
+--------------
+
+This guide only covers the steps to restore the database onto a Linux OS. 
+
+Prerequisites:
+* The machine you are restoring the backup to must have:
+  * Java 1.6 or newer
+  * PostgreSQL (9.1 preferred)
+  
+1. Log onto the machine that will have the WattDepot backup loaded into it.
+   Log on as a user that has administrative privileges and/or sudo privileges.
+   
+2. If a user named "wattdepot" does not exist, create a user "wattdepot" 
+   with the same password as the "wattdepot" user on Mopsa:
+   
+     % useradd wattdepot
+     % passwd wattdepot
+     Password: (Enter password)
+   
+3. Copy the backup file wattdepot_backup_<timestamp>.tar.gz onto the machine 
+   you want to load the backup onto, or onto a drive that it can access. 
+   Switch to the directory that contains the backup file.
+   
+4. Extract the backup file. If you are the root user, you must use 
+   the "--no-same-owner" option to change ownership of all the extracted files 
+   to root. Otherwise, tar will try to use the user and group IDs from the 
+   system that created the backup, and the operation will fail. The 
+   "--no-same-owner" flag is the default behavior for for normal users.
+
+     % tar -xzvf wattdepot_backup_<timestamp>.tar.gz --no-same-owner
+	 
+5. Switch into the backup directory: 
+
+     % cd wattdepot_backup_<timestamp>
+	 
+7. Copy the ".wattdepot" and "wattdepot-<x.x.x>" directories into /home/wattdepot. 
+   ("<x.x.x>" represents your current WattDepot version number.)
+
+     % cp -R ./.wattdepot /home/wattdepot/.wattdepot/
+     % cp -R ./wattdepot-<x.x.x> /home/wattdepot/wattdepot-<x.x.x>/
+
+8. Change ownership of the ".wattdepot" and "wattdepot-<x.x.x>" directories to the "wattdepot" user:
+
+     % chown -R wattdepot:wattdepot /home/wattdepot/.wattdepot/
+     % chown -R wattdepot:wattdepot /home/wattdepot/wattdepot-<x.x.x>/
+
+9. Log into PostgreSQL. Create the "wattdepot" user and "wattdepot" database 
+   if they do not exist. Replace '<WATTDEPOT-POSTGRES-USER-PASSWORD>' with the 
+   password used for the "wattdepot" user on the original server where the backup 
+   was made.
+   
+   If the "wattdepot" user and "wattdepot" database already exist, skip to step 9a.
+
+     % psql -U postgres
+     postgres=# CREATE USER wattdepot WITH PASSWORD '<WATTDEPOT-POSTGRES-USER-PASSWORD>';
+     CREATE ROLE
+     postgres=# CREATE DATABASE wattdepot WITH OWNER wattdepot;
+     CREATE DATABASE
+     postgres=# ALTER USER wattdepot WITH SUPERUSER;
+	 ALTER ROLE
+	 
+   9a. If the "wattdepot" database already exists on the server, it will need 
+       to be dropped and recreated as an empty database to load the .dump file:
+	   % psql -U postgres
+	   postgres=# DROP DATABASE wattdepot;
+	   DROP DATABASE
+	   postgres=# CREATE DATABASE wattdepot WITH OWNER wattdepot;
+	   CREATE DATABASE
+	   postgres=# ALTER USER wattdepot WITH SUPERUSER;
+	   ALTER ROLE
+	 
+10. Exit the PostgreSQL prompt.
+
+     % postgres=# \q
+
+11. Load the plaintext_backup.dump file into the "wattdepot" database: 
+
+     % psql -U wattdepot --set ON_ERROR_STOP=on wattdepot < plaintext_backup.dump
+
+Verify
+------
+
+The Wattdepot server must be started as the "wattdepot" user.
+
+1. Switch to the "wattdepot" user:
+
+     % su wattdepot
+     Password:  (Enter password)
+
+2. Switch to the wattdepot user's home directory:
+
+     % cd /home/wattdepot
+
+3. Start the server:
+
+     % /usr/bin/java -cp /home/wattdepot/wattdepot-<x.x.x>/wattdepot-<x.x.x>.jar org.wattdepot.server.Server -d server-uh
+
+4. To view the WattDepot web application, you will need to query the server's 
+   energy meter data. These instructions assume that you are using a web browser.
+   * To access the page on the local machine: go to http://localhost:8190/wattdepot/sources.
+   * To access the page from a remote machine: Go to <SERVER_IP_ADDRESS>:8190/wattdepot/sources.
+     where <SERVER_IP_ADDRESS> is the address of the remote server.
+
+5. On the http://localhost:8190/wattdepot/sources page, XML entries for 
+   WattDepot sensor data sources are listed. They follow this general format:
+   
+   <SourceRef Name="BldgA-07-lounge" Owner="http://server.example.org:8190/wattdepot/users
+   /user@example.org" Public="true" Virtual="false" Coordinates="47.84799, -142.96273"
+   Location="City, State Zipcode" Description="Meter installed in Building A 7th floor
+   lounge electrical closet." Href="http://server.example.org:8190/wattdepot/sources/BldgA-07-lounge"/>
+
+6. Select any of the sources, then copy the URL in its "Href" parameter. Paste the URL into a browser tab 
+   and make the following changes: 
+   * Replace the "server.example.org:8190" part with "localhost:8190."
+   * Add a /summary to the end.
+   * For example, http://server.example.org:8190/wattdepot/sources/BldgA-07-lounge would 
+     become http://localhost:8190/wattdepot/sources/BldgA-07-lounge/summary.
+   
+   You will see an XML file that contains a SourceSummary.
+   
+7. In the SourceSummary, check the value of the LastSensorData field. It should be fairly 
+   close to the time at which the backup was made. If it is, then you can assume that the 
+   backup contains all sensor data that was collected up to the time at which it was made.
+  
+   In the below example, the backup was made at 12:00 midnight (00:00:00) on September 7, 2013. 
+   The value of LastSensorData is 23:55:19.934, or 11:55 PM, 19.934 seconds, in GMT-10.:
+   
+   -<SourceSummary>
+    -<Href>
+      http://server.example.org:8190/wattdepot/sources/BldgA-07-lounge
+     </Href>
+     <FirstSensorData>2012-04-05T13:16:29.891-10:00</FirstSensorData>
+     <LastSensorData>2013-09-06T23:55:19.934-10:00</LastSensorData>
+     <TotalSensorDatas>133607</TotalSensorDatas>
+    </SourceSummary>
+
+8. When finished, press Control+C in the terminal where the WattDepot server 
+   is running. This will stop the WattDepot server.
